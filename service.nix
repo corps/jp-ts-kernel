@@ -3,7 +3,7 @@
   nodejs ? pkgs.nodejs }:
 
 let
-  deps = with pkgs.python35Packages; [ notebook jupyter_core ];
+  deps = with pkgs.python35Packages; [ jupyter_core notebook ];
   pynb = pkgs.python.buildEnv.override {
     extraLibs = deps;
     ignoreCollisions = true;

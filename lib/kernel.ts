@@ -10,7 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 export interface JupyterConnection {
-  signature_schema: string
+  signature_scheme: string
   key: string
   ip: string
   hb_port: number
@@ -26,11 +26,14 @@ export interface KernelConfig {
 
 export class Kernel {
   constructor(public config: KernelConfig) {
+  }
+
+  start() {
     this.resetLanguageHost();
     this.bindSockets();
   }
 
-  scheme = this.config.connection.signature_schema.slice("hmac-".length);
+  scheme = this.config.connection.signature_scheme.slice("hmac-".length);
   heartbeatSocket = zeromq.createSocket("rep");
   ioPubSocket = new Socket("pub", this.scheme, this.config.connection.key);
   shellSocket = new Socket("router", this.scheme, this.config.connection.key);
@@ -91,7 +94,7 @@ export class Kernel {
     let content = request.content as ShutdownContent;
 
     if (content.restart) {
-      return this.reset();
+      return this.restart();
     }
     else {
       return Promise.resolve().then(() => {
@@ -104,7 +107,7 @@ export class Kernel {
 
   handleInspectRequest(request: Message) {
     let content = request.content as CompleteContent;
-    this.curScript.update(content.code);
+    this.languageHost.updateScript(this.curScript.update(content.code));
 
     return this.languageHost.inspect(this.curScript, content.cursor_pos).then(response => {
       request.respond(this.shellSocket, "inspect_reply", {
@@ -126,7 +129,7 @@ export class Kernel {
 
   handleCompleteRequest(request: Message) {
     let content = request.content as CompleteContent;
-    this.curScript.update(content.code);
+    this.languageHost.updateScript(this.curScript.update(content.code));
 
     return this.languageHost.codeComplete(this.curScript, content.cursor_pos).catch(e => {
       console.error("Problem fetching code escapes", e);
@@ -149,8 +152,8 @@ export class Kernel {
     let content = request.content as ExecuteContent;
     let executingScript = this.curScript;
 
-    this.curScript.update(content.code);
-    this.curScript = this.languageHost.addScript(new CellScript(this.curScript.cellCounter + 1));
+    this.languageHost.updateScript(this.curScript.update(content.code));
+    this.curScript = this.languageHost.updateScript(new CellScript(this.curScript.cellCounter + 1));
 
     request.respond(this.ioPubSocket, "execute_input", {
       execution_count: this.curScript.cellCounter,
@@ -271,7 +274,7 @@ export class Kernel {
     this.languageHost.dispose();
   }
 
-  reset() {
+  restart() {
     this.resetLanguageHost();
     return Promise.resolve();
   }
@@ -279,6 +282,6 @@ export class Kernel {
   private resetLanguageHost() {
     if (this.languageHost) this.languageHost.dispose();
     this.languageHost = new LanguageServiceHost(this.config.workingDir);
-    this.curScript = this.languageHost.addScript(new CellScript(0));
+    this.curScript = this.languageHost.updateScript(new CellScript(0));
   }
 }

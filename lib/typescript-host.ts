@@ -17,9 +17,43 @@ export interface InspectResult {
   details: string
 }
 
-export class LanguageServiceHost implements ts.LanguageServiceHost {
+export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleResolutionHost {
+  constructor(public workingDir: string) {
+  }
+
+  cellDir = path.resolve(this.workingDir, "cell");
+
+  useCaseSensitiveFileNames() {
+    return false;
+  }
+
+  // getTypeRootsVersion?(): number;
+
+  resolveModuleNames(moduleNames: string[], containingFile: string): ts.ResolvedModule[] {
+    let result = [] as ts.ResolvedModule[];
+
+    for (let moduleName of moduleNames) {
+      let resolution = ts.resolveModuleName(moduleName, containingFile, this.getCompilationSettings(), this, this.moduleCache);
+      result.push(resolution.resolvedModule);
+    }
+
+    return result;
+  }
+
+  resolveTypeReferenceDirectives(typeDirectiveNames: string[], containingFile: string): ts.ResolvedTypeReferenceDirective[] {
+    let result = [] as ts.ResolvedTypeReferenceDirective[];
+
+    for (let directiveName of typeDirectiveNames) {
+      let resolvedDirective = ts.resolveTypeReferenceDirective(directiveName, containingFile, this.getCompilationSettings(), this);
+      result.push(resolvedDirective.resolvedTypeReferenceDirective);
+    }
+
+    return result;
+  }
+
   getCompilationSettings(): ts.CompilerOptions {
-    let options = {} as ts.CompilerOptions;
+    let options = ts.getDefaultCompilerOptions();
+    options = {...options};
 
     options.target = ts.ScriptTarget.ES5;
     options.allowUnusedLabels = true;
@@ -35,6 +69,27 @@ export class LanguageServiceHost implements ts.LanguageServiceHost {
 
     return options;
   }
+
+  readFile = (filename: string) => {
+    let rel = path.relative(this.workingDir, filename);
+    if (rel in this.scripts) {
+      return this.scripts[rel].contents;
+    }
+
+    return ts.sys.readFile(filename);
+  };
+
+  readDirectory = ts.sys.readDirectory;
+  fileExists = (filename: string) => {
+    let rel = path.relative(this.workingDir, filename);
+    if (rel in this.scripts) {
+      return true;
+    }
+
+    return ts.sys.fileExists(filename);
+  };
+  getDirectories = ts.sys.getDirectories;
+  directoryExists = ts.sys.directoryExists;
 
   getScriptFileNames(): string[] {
     return Object.keys(this.scripts);
@@ -66,23 +121,37 @@ export class LanguageServiceHost implements ts.LanguageServiceHost {
   }
 
   getDefaultLibFileName(options: ts.CompilerOptions): string {
-    return "lib.d.ts";
+    return ts.getDefaultLibFilePath(options);
   }
 
   dispose() {
     this.service.dispose();
   }
 
-  constructor(public workingDir: string) {
-  }
+  getCanonicalFileName = (fileName: string) => {
+    return path.relative(this.workingDir, path.resolve(this.workingDir, fileName));
+  };
 
   scripts = {} as { [k: string]: CellScript };
   docRegistry = ts.createDocumentRegistry(false, this.workingDir);
   service = ts.createLanguageService(this, this.docRegistry);
+  moduleCache = ts.createModuleResolutionCache(this.workingDir, this.getCanonicalFileName);
   formatHost = new FormatDiagnosticsHost(this.workingDir);
 
-  addScript(script: CellScript) {
+  updateScript(script: CellScript) {
     this.scripts[script.tmpFileName] = script;
+
+    let dirname = path.join(this.workingDir, "cell");
+    let workingDirCache = this.moduleCache.getOrCreateCacheForDirectory(dirname);
+    let key = "./" + path.basename(script.tmpFileName).split(".")[0];
+    workingDirCache.set(key, {
+      resolvedModule: {
+        isExternalLibraryImport: false,
+        resolvedFileName: script.tmpFileName,
+        extension: ts.Extension.Tsx
+      }
+    });
+
     return script;
   }
 
@@ -97,8 +166,8 @@ export class LanguageServiceHost implements ts.LanguageServiceHost {
 
       if (output.emitSkipped) {
         let allDiagnostics = this.service.getCompilerOptionsDiagnostics()
-                                 .concat(this.service.getSyntacticDiagnostics(script.tmpFileName))
-                                 .concat(this.service.getSemanticDiagnostics(script.tmpFileName));
+          .concat(this.service.getSyntacticDiagnostics(script.tmpFileName))
+          .concat(this.service.getSemanticDiagnostics(script.tmpFileName));
 
         reject(new Error(ts.formatDiagnostics(allDiagnostics, this.formatHost)));
         return;
@@ -141,7 +210,7 @@ export class LanguageServiceHost implements ts.LanguageServiceHost {
   inspect(script: CellScript, cursor: number): Promise<InspectResult> {
     return new Promise((resolve, reject) => {
       let info = this.service.getQuickInfoAtPosition(script.tmpFileName, cursor);
-      resolve({details: info.documentation.map(d => d.text).join(" ")});
+      resolve({details: info.displayParts.map(d => d.text).join("")});
     });
   }
 }
@@ -154,26 +223,37 @@ export class FormatDiagnosticsHost implements ts.FormatDiagnosticsHost {
     return this.workingDir;
   }
 
-  getCanonicalFileName(fileName: string) {
+  getCanonicalFileName = (fileName: string) => {
     return path.relative(this.workingDir, path.resolve(this.workingDir, fileName));
-  }
+  };
 
   getNewLine() {
     return "\n";
   }
 }
 
+let nameMatcher = /^\s*\/\/\s*([^\s]*)/;
+
 export class CellScript {
   constructor(public cellCounter: number) {
   }
 
-  tmpFileName = "cell/" + this.cellCounter + ".tsx";
+  get tmpFileName(): string {
+    let match = this.contents.match(nameMatcher);
+    if (match) {
+      return "cell/" + match[1] + ".tsx";
+    }
+
+    return "cell/" + this.cellCounter + ".tsx";
+  }
+
   version = 0;
   contents = "";
 
   update(contents: string) {
     this.contents = contents;
     this.version++;
+    return this;
   }
 }
 

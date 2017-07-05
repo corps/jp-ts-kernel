@@ -1,5 +1,5 @@
 {
   "display_name": "Typescript / Webpack Bundle",
   "language": "typescript",
-  "argv": ["node", "run.js", "{connection_file}"]
+  "argv": ["node", "/Users/dame/Development/jp-ts-kernel/kernels/jp-ts/run.js", "/Users/dame/Development/jp-ts-kernel", "{connection_file}"]
 }

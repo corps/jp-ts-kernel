@@ -1,2 +1,3 @@
 #!/usr/bin/env bash
-exec @pynb@/bin/ipython notebook $@
+echo @pynb@
+exec @pynb@/bin/ipython $@

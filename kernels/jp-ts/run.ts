@@ -5,10 +5,11 @@ if (!process.env.DEBUG) {
 }
 
 import * as fs from "fs";
-import * as path from "path";
 
-let workingDir = process.argv[1] || process.cwd();
-let connectionFile = process.argv[2];
+let workingDir = process.argv[2] || process.cwd();
+let connectionFile = process.argv[3];
+
+console.log("got args", process.argv)
 
 if (!connectionFile || !fs.existsSync(connectionFile)) {
   throw new Error("Could not find connection file " + connectionFile);
@@ -16,4 +17,15 @@ if (!connectionFile || !fs.existsSync(connectionFile)) {
 
 let connection = JSON.parse(fs.readFileSync(connectionFile, "utf-8"));
 
+console.error("connection", connection);
+
 let kernel = new Kernel({workingDir, connection});
+
+kernel.start();
+
+process.on("SIGINT", function() {
+  console.warn("Received SIGINT, Restarting kernel...");
+  kernel.restart();
+});
+
+setInterval(function() {}, 10000000);

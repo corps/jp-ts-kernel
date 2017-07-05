@@ -2,9 +2,10 @@
 // var Socket = require("jmp").Socket; // IPython/Jupyter protocol socket
 // var zmq = require("jmp").zmq; // ZMQ bindings
 
-import {Message, Socket} from "jmp";
+import {CompleteContent, ExecuteContent, Message, Socket, ShutdownContent} from "jmp";
 import * as zeromq from "zeromq";
-import * as ts from "typescript";
+import {CellScript, LanguageServiceHost, CompletionResult} from "./typescript-host";
+import * as typescript from "typescript";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -21,19 +22,12 @@ export interface JupyterConnection {
 export interface KernelConfig {
   connection: JupyterConnection
   workingDir: string
-  debug: boolean
-  kernelInfo: any
-  protocolVersion: string
 }
 
 export class Kernel {
   constructor(public config: KernelConfig) {
-    if (this.majorVersion !== "5") {
-      throw new Error("jp-ts-kernel currently only supports jupyter protocol version 5");
-    }
-
-    this._bindSockets();
-    this._initSession();
+    this.resetLanguageHost();
+    this.bindSockets();
   }
 
   scheme = this.config.connection.signature_schema.slice("hmac-".length);
@@ -41,94 +35,205 @@ export class Kernel {
   ioPubSocket = new Socket("pub", this.scheme, this.config.connection.key);
   shellSocket = new Socket("router", this.scheme, this.config.connection.key);
   controlSocket = new Socket("router", this.scheme, this.config.connection.key);
-  executionCount = 0;
-  majorVersion = this.config.protocolVersion.split(".")[0];
-
-  tsHost = (function() {
-
-  })
-
-  tsConfigFilePath = ts.findConfigFile(this.config.workingDir, fs.existsSync);
-  tsConfig = ts.readConfigFile(this.tsConfigFilePath, (p) => fs.readFileSync(p, "utf-8"));
-  tsHost = this.tsConfig.error ? null : ts.createCompilerHost(this.tsConfig.config);
-  formatHost: ts.FormatDiagnosticsHost = {
-    getCurrentDirectory() {
-      return this.config.workingDir;
-    },
-    getCanonicalFileName(fileName: string) {
-      return path.relative(this.config.workingDir, fileName);
-    },
-    getNewLine() {
-      return "\n";
-    }
-  };
-
-  logDebug(...parts: any[]) {
-    if (!process.env["DEBUG"]) return;
-
-    console.log("KERNEL (DEBUG):", ...parts);
-  }
-
-  logWarning(...parts: any[]) {
-    console.warn("KERNEL (WARN):", ...parts);
-  }
-
-  logError(e: Error) {
-    console.error("KERNEL (ERROR):", e.message, e.stack);
-  }
-
-  logDiagnostic(d: ts.Diagnostic) {
-    let message = ts.formatDiagnostics([d], this.formatHost);
-
-    switch (d.category) {
-      case 2:
-        this.logDebug(message);
-      case 1:
-        console.error("KERNEL (ERROR):", message);
-      case 0:
-      default:
-        this.logWarning(message);
-    }
-  }
-
-
-  onHeartbeat = (msg: Message) => {
-    this.logDebug("heartbeat");
-    this.heartbeatSocket.send(msg);
-  };
+  languageHost: LanguageServiceHost;
+  curScript: CellScript;
+  protocolVersion = "5.0";
 
   onShellMessage = (msg: Message) => {
     try {
-      this.logDebug("received msg", msg.header.msg_type);
+      console.log("received shell msg", msg.header.msg_type);
 
       switch (msg.header.msg_type) {
-        case "a":
+        case "kernel_info_request":
+          this.handle(msg, this.handleKernelInfo);
+          break;
+        case "execute_request":
+          this.handle(msg, this.handleExecuteRequest);
+          break;
+        case "complete_request":
+          this.handle(msg, this.handleCompleteRequest);
+          break;
+        case "history_request":
+          this.handle(msg, this.handleHistoryRequest);
+          break;
+        case "inspect_request":
+          this.handle(msg, this.handleInspectRequest);
+          break;
+        case "shutdown_request":
+          this.handle(msg, this.handleShutdownRequest);
           break;
         default:
-          this.logWarning("Unhandled message type", msg.header.msg_type);
+          console.warn("Unhandled shell message type", msg.header.msg_type);
       }
     } catch (e) {
-      this.logError(e);
+      console.error(e.toString(), e.stack);
     }
   };
 
   onControlMessage = (msg: Message) => {
     try {
+      console.log("received control msg", msg.header.msg_type);
+
       switch (msg.header.msg_type) {
         case "shutdown_request":
           // call shutdown here
+          this.close();
           break;
         default:
-        // log the thing
+          console.warn("Unhandled control message type", msg.header.msg_type)
       }
     } catch (e) {
-      // log the error
+      console.error(e.toString(), e.stack);
     }
   };
 
-  private _bindSockets() {
+  handleShutdownRequest(request: Message) {
+    let content = request.content as ShutdownContent;
+
+    if (content.restart) {
+      return this.reset();
+    }
+    else {
+      return Promise.resolve().then(() => {
+        setTimeout(() => {
+          this.close();
+        }, 0);
+      });
+    }
+  }
+
+  handleInspectRequest(request: Message) {
+    let content = request.content as CompleteContent;
+    this.curScript.update(content.code);
+
+    return this.languageHost.inspect(this.curScript, content.cursor_pos).then(response => {
+      request.respond(this.shellSocket, "inspect_reply", {
+        found: !!response.details,
+        data: response.details && {
+          "text/plain": response.details,
+          "text/html": "<pre>" + response.details + "</pre>"
+        },
+        metadata: {},
+        status: "ok"
+      });
+    });
+  }
+
+  handleHistoryRequest(request: Message) {
+    request.respond(this.shellSocket, "history_reply", {"history": []}, {}, this.protocolVersion);
+    return Promise.resolve();
+  }
+
+  handleCompleteRequest(request: Message) {
+    let content = request.content as CompleteContent;
+    this.curScript.update(content.code);
+
+    return this.languageHost.codeComplete(this.curScript, content.cursor_pos).catch(e => {
+      console.error("Problem fetching code escapes", e);
+      return {
+        cursorStart: content.cursor_pos,
+        cursorEnd: content.cursor_pos,
+        textMatches: []
+      } as CompletionResult;
+    }).then(result => {
+      request.respond(this.shellSocket, "complete_reply", {
+        matches: result.textMatches,
+        cursor_start: result.cursorStart,
+        cursor_end: result.cursorEnd,
+        status: "ok",
+      });
+    });
+  }
+
+  handleExecuteRequest(request: Message) {
+    let content = request.content as ExecuteContent;
+    let executingScript = this.curScript;
+
+    this.curScript.update(content.code);
+    this.curScript = this.languageHost.addScript(new CellScript(this.curScript.cellCounter + 1));
+
+    request.respond(this.ioPubSocket, "execute_input", {
+      execution_count: this.curScript.cellCounter,
+      code: content.code,
+    });
+
+    return this.languageHost.compileScript(executingScript).then(result => {
+      this.stream(request, "stdout", "typescript compilation finished, running webpack...");
+      return result.contents[result.entry];
+    }).then(jsCode => {
+      request.respond(this.shellSocket, "execute_reply", {
+        status: "ok",
+        execution_count: this.curScript.cellCounter,
+        payload: [],
+        user_expressions: {},
+      });
+
+      request.respond(this.ioPubSocket, "execute_result", {
+        execution_count: this.curScript.cellCounter,
+        data: {
+          "text/html": "<script>" + jsCode + "</script>"
+        },
+        metadata: {},
+      });
+    }).catch((e) => {
+      let err = {
+        ename: "Compilation Error",
+        evalue: "",
+        traceback: e.toString().split("\n"),
+      };
+
+      request.respond(this.shellSocket, "execute_reply", {
+        ...err,
+        status: "error",
+        execution_count: this.curScript.cellCounter,
+      });
+
+      request.respond(this.ioPubSocket, "error", {
+        ...err,
+        execution_count: this.curScript.cellCounter,
+      });
+
+      return Promise.reject(e);
+    });
+  }
+
+  handleKernelInfo(request: Message) {
+    return new Promise((resolve, reject) => {
+      request.respond(this.shellSocket, "kernel_info_reply", {
+        implementation: "jp-ts",
+        implementation_version: JSON.parse(fs.readFileSync(
+            path.join(__dirname, "..", "package.json"), "utf-8")).version,
+        language_info: {
+          name: "typescript",
+          version: typescript.version,
+          file_extension: ".tsx"
+        },
+        protocol_version: this.protocolVersion,
+      }, {}, this.protocolVersion);
+
+      resolve();
+    });
+  }
+
+  handle(request: Message, handler: (request: Message) => Promise<any>) {
+    try {
+      this.reportExecutionState(request, 'busy');
+      let finish = this.reportExecutionState.bind(this, request, 'idle');
+      handler.call(this, request).then(finish, finish);
+    } catch (e) {
+      this.reportExecutionState(request, 'idle');
+      throw e;
+    }
+  }
+
+  onHeartbeat = (msg: Message) => {
+    console.log("heartbeat");
+    this.heartbeatSocket.send(msg);
+  };
+
+  private bindSockets() {
     let config = this.config;
-    var address = "tcp://" + config.connection.ip + ":";
+    let address = "tcp://" + config.connection.ip + ":";
 
     this.heartbeatSocket.on("message", this.onHeartbeat);
     this.shellSocket.on("message", this.onShellMessage);
@@ -140,29 +245,40 @@ export class Kernel {
     this.ioPubSocket.bindSync(address + config.connection.iopub_port);
   }
 
-  private _initSession() {
-
+  private reportExecutionState(request: Message, state: 'busy' | 'idle') {
+    request.respond(this.ioPubSocket, 'status', {
+      execution_state: state
+    });
   }
 
-  close(cb: () => void) {
-    this.logWarning("Kernel shutting down");
+  private stream(request: Message, stream: "stderr" | "stdout", msg: string) {
+    request.respond(this.ioPubSocket, "stream", {name: stream, text: msg});
+  }
 
-    // TODO(NR) Handle socket `this.stdin` once it is implemented
+  close() {
+    console.warn("Kernel shutting down");
 
     this.controlSocket.removeAllListeners();
     this.shellSocket.removeAllListeners();
     this.heartbeatSocket.removeAllListeners();
     this.ioPubSocket.removeAllListeners();
 
-    // this.session.kill("SIGTERM", function(code, signal) {
-    //   if (destroyCB) {
-    //     destroyCB(code, signal);
-    //   }
-    //
-    //   this.controlSocket.close();
-    //   this.shellSocket.close();
-    //   this.iopubSocket.close();
-    //   this.hbSocket.close();
-    // }.bind(this));
+    this.controlSocket.close();
+    this.shellSocket.close();
+    this.ioPubSocket.close();
+    this.heartbeatSocket.close();
+
+    this.languageHost.dispose();
+  }
+
+  reset() {
+    this.resetLanguageHost();
+    return Promise.resolve();
+  }
+
+  private resetLanguageHost() {
+    if (this.languageHost) this.languageHost.dispose();
+    this.languageHost = new LanguageServiceHost(this.config.workingDir);
+    this.curScript = this.languageHost.addScript(new CellScript(0));
   }
 }

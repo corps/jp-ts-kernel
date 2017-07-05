@@ -1,0 +1,5 @@
+{
+  "display_name": "Typescript / Webpack Bundle",
+  "language": "typescript",
+  "argv": ["node", "run.js", "{connection_file}"]
+}

@@ -9,6 +9,7 @@ declare module "jmp" {
     send(message: Message, flags: number): this;
 
     bindSync(address: string): this;
+    close(): void;
   }
 
   export interface MessageHeader {
@@ -27,6 +28,19 @@ declare module "jmp" {
     buffers: object[];
     idents: object[];
 
-    respond(socket: Socket, messageType: string, content: object, metadata: object, protocolVersion: string): void;
+    respond(socket: Socket, messageType: string, content: object, metadata?: object, protocolVersion?: string): void;
+  }
+
+  export interface ExecuteContent {
+    code: string
+  }
+
+  export interface CompleteContent {
+    code: string
+    cursor_pos: number
+  }
+
+  export interface ShutdownContent {
+    restart: boolean
   }
 }

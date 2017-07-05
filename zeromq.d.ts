@@ -5,5 +5,6 @@ declare module "zeromq" {
     on: (event: string, handler: Function) => void;
     send: (msg: any) => void;
     removeAllListeners: () => void
+    close(): void
   }
 }

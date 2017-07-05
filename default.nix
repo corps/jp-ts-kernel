@@ -15,6 +15,6 @@ in
 
 with pkgs;
 stdenv.mkDerivation {
-  name = "jp-test-kernel";
-  buildInputs = npmInputs ++ [ zeromq ];
+  name = "jp-ts-kernel";
+  buildInputs = npmInputs ++ [ zeromq (import ./service.nix {}) ];
 }

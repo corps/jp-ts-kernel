@@ -19,6 +19,7 @@
   "dependencies": {
     "@types/node": "^8.0.7",
     "jmp": "^0.7.5",
+    "typescript": "^2.4.1",
     "zeromq": "^4.5.0"
   }
 }

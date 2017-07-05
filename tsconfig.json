@@ -4,7 +4,10 @@
     "noImplicitAny": true,
     "target": "es5",
     "sourceMap": false,
-    "noUnusedLocals": true
+    "noUnusedLocals": true,
+    "lib": [
+      "es6"
+    ]
   },
   "exclude": [
     "node_modules"

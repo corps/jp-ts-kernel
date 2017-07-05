@@ -1,0 +1,24 @@
+{
+  "name": "jp-ts-kernel",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/corps/jp-ts-kernel.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/corps/jp-ts-kernel/issues"
+  },
+  "homepage": "https://github.com/corps/jp-ts-kernel#readme",
+  "dependencies": {
+    "@types/node": "^8.0.7",
+    "jmp": "^0.7.5",
+    "zeromq": "^4.5.0"
+  }
+}

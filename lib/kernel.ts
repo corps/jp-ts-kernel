@@ -8,6 +8,7 @@ import {CellScript, LanguageServiceHost, CompletionResult} from "./typescript-ho
 import * as typescript from "typescript";
 import * as fs from "fs";
 import * as path from "path";
+import {Webpacker} from "./webpacker";
 
 export interface JupyterConnection {
   signature_scheme: string
@@ -41,6 +42,7 @@ export class Kernel {
   languageHost: LanguageServiceHost;
   curScript: CellScript;
   protocolVersion = "5.0";
+  webpacker = new Webpacker(this.config.workingDir);
 
   onShellMessage = (msg: Message) => {
     try {
@@ -162,9 +164,8 @@ export class Kernel {
 
     return this.languageHost.compileScript(executingScript).then(result => {
       this.stream(request, "stdout", "typescript compilation finished, running webpack...");
-
       let entry = result.entry.split(".").slice(0, -1).join(".") + ".js";
-      return result.contents[entry];
+      return this.webpacker.run(entry, result.contents[entry]);
     }).then(jsCode => {
       request.respond(this.shellSocket, "execute_reply", {
         status: "ok",
@@ -207,7 +208,7 @@ export class Kernel {
       request.respond(this.shellSocket, "kernel_info_reply", {
         implementation: "jp-ts",
         implementation_version: JSON.parse(fs.readFileSync(
-            path.join(__dirname, "..", "package.json"), "utf-8")).version,
+          path.join(__dirname, "..", "package.json"), "utf-8")).version,
         language_info: {
           name: "typescript",
           version: typescript.version,

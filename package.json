@@ -18,8 +18,10 @@
   "homepage": "https://github.com/corps/jp-ts-kernel#readme",
   "dependencies": {
     "@types/node": "^8.0.7",
+    "@types/webpack": "^3.0.1",
     "jmp": "^0.7.5",
     "typescript": "^2.4.1",
+    "webpack": "^3.0.0",
     "zeromq": "^4.5.0"
   }
 }

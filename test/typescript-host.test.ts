@@ -26,8 +26,8 @@ describe("LanguageServiceHost", () => {
       export let two = 2;
     `);
 
-    host.updateScript(script2);
-    host.updateScript(script1);
+    host.addOrReplaceScript(script2);
+    host.addOrReplaceScript(script1);
 
     host.compileScript(script1).then(result => {
       assert.equal(result.entry, "cell/0.tsx");
@@ -53,8 +53,8 @@ describe("LanguageServiceHost", () => {
       export let two = 2;
     `);
 
-    host.updateScript(script2);
-    host.updateScript(script1);
+    host.addOrReplaceScript(script2);
+    host.addOrReplaceScript(script1);
 
     host.codeComplete(script1, script1.contents.indexOf("{ tw") + 2).then(result => {
       assert.deepEqual(result, {cursorStart: 48, cursorEnd: 50, textMatches: ['two']});
@@ -79,8 +79,8 @@ describe("LanguageServiceHost", () => {
       export let two = 2;
     `);
 
-    host.updateScript(script2);
-    host.updateScript(script1);
+    host.addOrReplaceScript(script2);
+    host.addOrReplaceScript(script1);
 
     host.inspect(script1, script1.contents.indexOf("readFile") + 1).then(result => {
       assert.deepEqual(result, {details: "function readFile(filename: string, encoding: string, callback: (err: NodeJS.ErrnoException, data: string) => void): void (+3 overloads)"});

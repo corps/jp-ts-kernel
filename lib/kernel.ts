@@ -79,8 +79,8 @@ export class Kernel {
 
       switch (msg.header.msg_type) {
         case "shutdown_request":
-          // call shutdown here
           this.close();
+          msg.respond(this.controlSocket, "shutdown_reply", msg.content);
           break;
         default:
           console.warn("Unhandled control message type", msg.header.msg_type)
@@ -107,7 +107,7 @@ export class Kernel {
 
   handleInspectRequest(request: Message) {
     let content = request.content as CompleteContent;
-    this.languageHost.updateScript(this.curScript.update(content.code));
+    this.languageHost.addOrReplaceScript(this.curScript.update(content.code));
 
     return this.languageHost.inspect(this.curScript, content.cursor_pos).then(response => {
       request.respond(this.shellSocket, "inspect_reply", {
@@ -129,7 +129,7 @@ export class Kernel {
 
   handleCompleteRequest(request: Message) {
     let content = request.content as CompleteContent;
-    this.languageHost.updateScript(this.curScript.update(content.code));
+    this.languageHost.addOrReplaceScript(this.curScript.update(content.code));
 
     return this.languageHost.codeComplete(this.curScript, content.cursor_pos).catch(e => {
       console.error("Problem fetching code escapes", e);
@@ -152,8 +152,8 @@ export class Kernel {
     let content = request.content as ExecuteContent;
     let executingScript = this.curScript;
 
-    this.languageHost.updateScript(this.curScript.update(content.code));
-    this.curScript = this.languageHost.updateScript(new CellScript(this.curScript.cellCounter + 1));
+    this.languageHost.addOrReplaceScript(this.curScript.update(content.code));
+    this.curScript = this.languageHost.addOrReplaceScript(new CellScript(this.curScript.cellCounter + 1));
 
     request.respond(this.ioPubSocket, "execute_input", {
       execution_count: this.curScript.cellCounter,
@@ -176,7 +176,7 @@ export class Kernel {
       request.respond(this.ioPubSocket, "execute_result", {
         execution_count: this.curScript.cellCounter,
         data: {
-          "text/html": "<script>" + jsCode + "</script>"
+          "text/html": "<div id='" + executingScript.cellDivId + "'></div><script>" + jsCode + "</script>"
         },
         metadata: {},
       });
@@ -284,6 +284,7 @@ export class Kernel {
   private resetLanguageHost() {
     if (this.languageHost) this.languageHost.dispose();
     this.languageHost = new LanguageServiceHost(this.config.workingDir);
-    this.curScript = this.languageHost.updateScript(new CellScript(0));
+    this.languageHost.addOrReplaceScript(CellScript.cellSetupScript);
+    this.curScript = this.languageHost.addOrReplaceScript(new CellScript(0));
   }
 }

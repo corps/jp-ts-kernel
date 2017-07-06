@@ -21,8 +21,6 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
   constructor(public workingDir: string) {
   }
 
-  cellDir = path.resolve(this.workingDir, "cell");
-
   useCaseSensitiveFileNames() {
     return false;
   }
@@ -146,12 +144,13 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
   moduleCache = ts.createModuleResolutionCache(this.workingDir, this.getCanonicalFileName);
   formatHost = new FormatDiagnosticsHost(this.workingDir);
 
-  updateScript(script: CellScript) {
+  addOrReplaceScript(script: CellScript) {
     this.scripts[script.tmpFileName] = script;
 
     let dirname = path.join(this.workingDir, "cell");
     let workingDirCache = this.moduleCache.getOrCreateCacheForDirectory(dirname);
     let key = "./" + path.basename(script.tmpFileName).split(".")[0];
+
     workingDirCache.set(key, {
       resolvedModule: {
         isExternalLibraryImport: false,
@@ -219,7 +218,7 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
       if (completions) {
         for (let completion of completions.entries) {
           // if (completion.replacementSpan) continue;
-          if(completion.kind == "keyword") continue;
+          if (completion.kind == "keyword") continue;
           if (completion.name.slice(0, selectFilter.length) != selectFilter) continue;
           result.textMatches.push(completion.name);
         }
@@ -254,14 +253,14 @@ export class FormatDiagnosticsHost implements ts.FormatDiagnosticsHost {
   }
 }
 
-let nameMatcher = /^\s*\/\/\s*([^\s]*)/;
+let nameMatcher = /^\s*\/\/\s*module:([^\s]*)/;
 
 export class CellScript {
-  constructor(public cellCounter: number) {
+  constructor(public cellCounter: number, public _contents = "") {
   }
 
   get tmpFileName(): string {
-    let match = this.contents.match(nameMatcher);
+    let match = this._contents.match(nameMatcher);
     if (match) {
       return "cell/" + match[1] + ".tsx";
     }
@@ -270,12 +269,26 @@ export class CellScript {
   }
 
   version = 0;
-  contents = "";
+
+  get contents(): string {
+    return "import {getDiv} from \"./_setup\";\nconst div = getDiv(" + JSON.stringify(this.cellDivId) + ");\n" + this._contents;
+  }
 
   update(contents: string) {
-    this.contents = contents;
+    this._contents = contents;
     this.version++;
     return this;
   }
+
+  get cellDivId(): string {
+    return "cell-" + this.cellCounter;
+  }
+
+  static cellSetupScript = new CellScript(-1, `
+    // module:_setup
+    export function getDiv(cellDivId: string) {
+      return document.getElementById(cellDivId);
+    }
+  `);
 }
 

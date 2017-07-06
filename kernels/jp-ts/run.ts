@@ -1,7 +1,7 @@
 import {Kernel} from "../../lib/kernel";
 if (!process.env.DEBUG) {
-  // console.log = function () {
-  // }
+  console.log = function () {
+  }
 }
 
 import * as fs from "fs";

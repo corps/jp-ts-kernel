@@ -44,7 +44,7 @@ export class Kernel {
 
   onShellMessage = (msg: Message) => {
     try {
-      console.log("received shell msg", msg.header.msg_type);
+      console.log("received shell msg", msg);
 
       switch (msg.header.msg_type) {
         case "kernel_info_request":
@@ -162,7 +162,9 @@ export class Kernel {
 
     return this.languageHost.compileScript(executingScript).then(result => {
       this.stream(request, "stdout", "typescript compilation finished, running webpack...");
-      return result.contents[result.entry];
+
+      let entry = result.entry.split(".").slice(0, -1).join(".") + ".js";
+      return result.contents[entry];
     }).then(jsCode => {
       request.respond(this.shellSocket, "execute_reply", {
         status: "ok",

@@ -1,3 +1,6 @@
 #!/usr/bin/env bash
 echo @pynb@
-exec @pynb@/bin/ipython $@
+
+cd @jptsDir@
+export JUPYTER_PATH=$PWD
+exec @pynb@/bin/ipython notebook --config=@jupyterConfig@ $@

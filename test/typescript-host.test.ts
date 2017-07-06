@@ -41,7 +41,7 @@ describe("LanguageServiceHost", () => {
 
     script1.update(`
       import * as fs from "fs";
-      import { t } from "./two-script";
+      import { tw } from "./two-script";
       
       fs.readFile
       let v:number = 1;
@@ -56,8 +56,8 @@ describe("LanguageServiceHost", () => {
     host.updateScript(script2);
     host.updateScript(script1);
 
-    host.codeComplete(script1, script1.contents.indexOf("{ t") + 2).then(result => {
-      assert.deepEqual(result, {cursorStart: 48, cursorEnd: 49, textMatches: ['two']});
+    host.codeComplete(script1, script1.contents.indexOf("{ tw") + 2).then(result => {
+      assert.deepEqual(result, {cursorStart: 48, cursorEnd: 50, textMatches: ['two']});
     }).then(() => done(), (e) => done(e));
   });
 

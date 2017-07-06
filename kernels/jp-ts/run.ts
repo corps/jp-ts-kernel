@@ -1,7 +1,7 @@
 import {Kernel} from "../../lib/kernel";
 if (!process.env.DEBUG) {
-  console.log = function () {
-  }
+  // console.log = function () {
+  // }
 }
 
 import * as fs from "fs";
@@ -9,15 +9,11 @@ import * as fs from "fs";
 let workingDir = process.argv[2] || process.cwd();
 let connectionFile = process.argv[3];
 
-console.log("got args", process.argv)
-
 if (!connectionFile || !fs.existsSync(connectionFile)) {
   throw new Error("Could not find connection file " + connectionFile);
 }
 
 let connection = JSON.parse(fs.readFileSync(connectionFile, "utf-8"));
-
-console.error("connection", connection);
 
 let kernel = new Kernel({workingDir, connection});
 

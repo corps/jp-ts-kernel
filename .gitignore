@@ -2,3 +2,5 @@
 .idea
 npm.log
 node_modules/
+.ipynb_checkpoints/
+*.ipynb

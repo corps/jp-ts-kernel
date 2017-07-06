@@ -33,18 +33,26 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
     let result = [] as ts.ResolvedModule[];
 
     for (let moduleName of moduleNames) {
-      let resolution = ts.resolveModuleName(moduleName, containingFile, this.getCompilationSettings(), this, this.moduleCache);
+      let resolution = ts.resolveModuleName(moduleName,
+          containingFile,
+          this.getCompilationSettings(),
+          this,
+          this.moduleCache);
       result.push(resolution.resolvedModule);
     }
 
     return result;
   }
 
-  resolveTypeReferenceDirectives(typeDirectiveNames: string[], containingFile: string): ts.ResolvedTypeReferenceDirective[] {
+  resolveTypeReferenceDirectives(typeDirectiveNames: string[],
+                                 containingFile: string): ts.ResolvedTypeReferenceDirective[] {
     let result = [] as ts.ResolvedTypeReferenceDirective[];
 
     for (let directiveName of typeDirectiveNames) {
-      let resolvedDirective = ts.resolveTypeReferenceDirective(directiveName, containingFile, this.getCompilationSettings(), this);
+      let resolvedDirective = ts.resolveTypeReferenceDirective(directiveName,
+          containingFile,
+          this.getCompilationSettings(),
+          this);
       result.push(resolvedDirective.resolvedTypeReferenceDirective);
     }
 
@@ -166,8 +174,8 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
 
       if (output.emitSkipped) {
         let allDiagnostics = this.service.getCompilerOptionsDiagnostics()
-          .concat(this.service.getSyntacticDiagnostics(script.tmpFileName))
-          .concat(this.service.getSemanticDiagnostics(script.tmpFileName));
+                                 .concat(this.service.getSyntacticDiagnostics(script.tmpFileName))
+                                 .concat(this.service.getSemanticDiagnostics(script.tmpFileName));
 
         reject(new Error(ts.formatDiagnostics(allDiagnostics, this.formatHost)));
         return;
@@ -189,18 +197,32 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
         throw new Error("Attempted to complete cell " + script.cellCounter + " but it did not exist in the current service");
       }
 
-      let span = this.service.getQuickInfoAtPosition(script.tmpFileName, cursor).textSpan;
       let completions = this.service.getCompletionsAtPosition(script.tmpFileName, cursor);
 
+      let spaces = /\s|[^a-zA-Z0-9$_]|$/g;
+      let startIdx = cursor;
+      let endIdx = cursor;
+      for (let next = spaces.exec(script.contents); next; next = spaces.exec(script.contents)) {
+        endIdx = next.index;
+        if (next.index >= cursor) break;
+        startIdx = next.index + 1;
+      }
+
+      let selectFilter = script.contents.slice(startIdx, cursor);
+
       let result = {
-        cursorStart: span.start,
-        cursorEnd: span.start + span.length,
+        cursorStart: startIdx,
+        cursorEnd: endIdx,
         textMatches: []
       } as CompletionResult;
 
-      for (let completion of completions.entries) {
-        if (completion.replacementSpan) continue;
-        result.textMatches.push(completion.name);
+      if (completions) {
+        for (let completion of completions.entries) {
+          // if (completion.replacementSpan) continue;
+          if(completion.kind == "keyword") continue;
+          if (completion.name.slice(0, selectFilter.length) != selectFilter) continue;
+          result.textMatches.push(completion.name);
+        }
       }
 
       resolve(result);

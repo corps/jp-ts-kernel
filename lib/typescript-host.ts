@@ -25,8 +25,6 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
     return false;
   }
 
-  // getTypeRootsVersion?(): number;
-
   resolveModuleNames(moduleNames: string[], containingFile: string): ts.ResolvedModule[] {
     let result = [] as ts.ResolvedModule[];
 
@@ -256,7 +254,7 @@ export class FormatDiagnosticsHost implements ts.FormatDiagnosticsHost {
 let nameMatcher = /^\s*\/\/\s*module:([^\s]*)/;
 
 export class CellScript {
-  constructor(public cellCounter: number, public _contents = "") {
+  constructor(public cellCounter: number, public _contents = "", private withoutHeader = false) {
   }
 
   get tmpFileName(): string {
@@ -271,6 +269,7 @@ export class CellScript {
   version = 0;
 
   get contents(): string {
+    if (this.withoutHeader) return this._contents;
     return "import {getDiv} from \"./_setup\";\nconst div = getDiv(" + JSON.stringify(this.cellDivId) + ");\n" + this._contents;
   }
 
@@ -289,6 +288,6 @@ export class CellScript {
     export function getDiv(cellDivId: string) {
       return document.getElementById(cellDivId);
     }
-  `);
+  `, true);
 }
 

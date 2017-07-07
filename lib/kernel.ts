@@ -42,7 +42,8 @@ export class Kernel {
   languageHost: LanguageServiceHost;
   curScript: CellScript;
   protocolVersion = "5.0";
-  webpacker = new Webpacker(this.config.workingDir);
+  webpacker: Webpacker;
+  compiledSetup = false;
 
   onShellMessage = (msg: Message) => {
     try {
@@ -134,7 +135,7 @@ export class Kernel {
     this.languageHost.addOrReplaceScript(this.curScript.update(content.code));
 
     return this.languageHost.codeComplete(this.curScript, content.cursor_pos).catch(e => {
-      console.error("Problem fetching code escapes", e);
+      console.error("Problem fetching code escapes", e, e.stack);
       return {
         cursorStart: content.cursor_pos,
         cursorEnd: content.cursor_pos,
@@ -162,45 +163,63 @@ export class Kernel {
       code: content.code,
     });
 
-    return this.languageHost.compileScript(executingScript).then(result => {
-      this.stream(request, "stdout", "typescript compilation finished, running webpack...");
-      let entry = result.entry.split(".").slice(0, -1).join(".") + ".js";
-      return this.webpacker.run(entry, result.contents[entry]);
-    }).then(jsCode => {
-      request.respond(this.shellSocket, "execute_reply", {
-        status: "ok",
-        execution_count: this.curScript.cellCounter,
-        payload: [],
-        user_expressions: {},
-      });
+    const buildExecutingScript = () => {
+      this.stream(request, "stdout", "Starting typescript compilation for cell...\n");
 
-      request.respond(this.ioPubSocket, "execute_result", {
-        execution_count: this.curScript.cellCounter,
-        data: {
-          "text/html": "<div id='" + executingScript.cellDivId + "'></div><script>" + jsCode + "</script>"
-        },
-        metadata: {},
-      });
-    }).catch((e) => {
-      let err = {
-        ename: "Compilation Error",
-        evalue: "",
-        traceback: e.toString().split("\n"),
-      };
+      return this.languageHost.compileScript(executingScript).then(result => {
+        this.stream(request, "stdout", "typescript compilation finished, running webpack...\n");
+        let entry = result.entry.split(".").slice(0, -1).join(".") + ".js";
+        return this.webpacker.run(entry, result.contents[entry]);
+      }).then(jsCode => {
+        request.respond(this.shellSocket, "execute_reply", {
+          status: "ok",
+          execution_count: this.curScript.cellCounter,
+          payload: [],
+          user_expressions: {},
+        });
 
-      request.respond(this.shellSocket, "execute_reply", {
-        ...err,
-        status: "error",
-        execution_count: this.curScript.cellCounter,
-      });
+        request.respond(this.ioPubSocket, "execute_result", {
+          execution_count: this.curScript.cellCounter,
+          data: {
+            "text/html": "<div id='" + executingScript.cellDivId + "'></div><script>" + jsCode + "</script>"
+          },
+          metadata: {},
+        });
+      }).catch((e) => {
+        let err = {
+          ename: "Compilation Error",
+          evalue: "",
+          traceback: e.toString().split("\n"),
+        };
 
-      request.respond(this.ioPubSocket, "error", {
-        ...err,
-        execution_count: this.curScript.cellCounter,
-      });
+        request.respond(this.shellSocket, "execute_reply", {
+          ...err,
+          status: "error",
+          execution_count: this.curScript.cellCounter,
+        });
 
-      return Promise.reject(e);
-    });
+        request.respond(this.ioPubSocket, "error", {
+          ...err,
+          execution_count: this.curScript.cellCounter,
+        });
+
+        return Promise.reject(e);
+      });
+    };
+
+    if (!this.compiledSetup) {
+      this.stream(request, "stdout", "Building setup script...\n");
+
+      return this.languageHost.compileScript(CellScript.cellSetupScript).then(result => {
+        this.compiledSetup = true;
+        let entry = result.entry.split(".").slice(0, -1).join(".") + ".js";
+        this.webpacker.addOrReplaceScript(entry, result.contents[entry]);
+        this.stream(request, "stdout", "Setup script ready\n");
+        return buildExecutingScript();
+      });
+    }
+
+    return buildExecutingScript();
   }
 
   handleKernelInfo(request: Message) {
@@ -208,7 +227,7 @@ export class Kernel {
       request.respond(this.shellSocket, "kernel_info_reply", {
         implementation: "jp-ts",
         implementation_version: JSON.parse(fs.readFileSync(
-          path.join(__dirname, "..", "package.json"), "utf-8")).version,
+            path.join(__dirname, "..", "package.json"), "utf-8")).version,
         language_info: {
           name: "typescript",
           version: typescript.version,
@@ -225,8 +244,13 @@ export class Kernel {
     try {
       this.reportExecutionState(request, 'busy');
       let finish = this.reportExecutionState.bind(this, request, 'idle');
-      handler.call(this, request).then(finish, finish);
+      handler.call(this, request).then(finish, (e: Error) => {
+        console.error(e, e.stack);
+        this.stream(request, "stderr", e.toString() + "\n");
+        finish();
+      });
     } catch (e) {
+      console.error(e, e.stack);
       this.reportExecutionState(request, 'idle');
       throw e;
     }
@@ -284,8 +308,11 @@ export class Kernel {
 
   private resetLanguageHost() {
     if (this.languageHost) this.languageHost.dispose();
+    this.compiledSetup = false;
+
     this.languageHost = new LanguageServiceHost(this.config.workingDir);
     this.languageHost.addOrReplaceScript(CellScript.cellSetupScript);
+    this.webpacker = new Webpacker(this.config.workingDir);
     this.curScript = this.languageHost.addOrReplaceScript(new CellScript(0));
   }
 }

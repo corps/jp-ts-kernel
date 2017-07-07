@@ -101,7 +101,7 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
 
   getScriptVersion(fileName: string): string {
     if (fileName in this.scripts) {
-      return this.scripts[fileName].version + "";
+      return this.versions[fileName] + "";
     }
 
     let stats = fs.statSync(fileName);
@@ -137,6 +137,7 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
   };
 
   scripts = {} as { [k: string]: CellScript };
+  versions = {} as { [k: string]: number };
   docRegistry = ts.createDocumentRegistry(false, this.workingDir);
   service = ts.createLanguageService(this, this.docRegistry);
   moduleCache = ts.createModuleResolutionCache(this.workingDir, this.getCanonicalFileName);
@@ -144,6 +145,7 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
 
   addOrReplaceScript(script: CellScript) {
     this.scripts[script.tmpFileName] = script;
+    this.versions[script.tmpFileName] = (this.versions[script.tmpFileName] || 0) + 1;
 
     let dirname = path.join(this.workingDir, "cell");
     let workingDirCache = this.moduleCache.getOrCreateCacheForDirectory(dirname);
@@ -194,22 +196,23 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
         throw new Error("Attempted to complete cell " + script.cellCounter + " but it did not exist in the current service");
       }
 
-      let completions = this.service.getCompletionsAtPosition(script.tmpFileName, cursor);
+      let execCursor = cursor + script.header.length;
+      let completions = this.service.getCompletionsAtPosition(script.tmpFileName, execCursor);
 
       let spaces = /\s|[^a-zA-Z0-9$_]|$/g;
-      let startIdx = cursor;
-      let endIdx = cursor;
+      let startIdx = execCursor;
+      let endIdx = execCursor;
       for (let next = spaces.exec(script.contents); next; next = spaces.exec(script.contents)) {
         endIdx = next.index;
-        if (next.index >= cursor) break;
+        if (next.index >= execCursor) break;
         startIdx = next.index + 1;
       }
 
-      let selectFilter = script.contents.slice(startIdx, cursor);
+      let selectFilter = script.contents.slice(startIdx, execCursor);
 
       let result = {
-        cursorStart: startIdx,
-        cursorEnd: endIdx,
+        cursorStart: Math.max(startIdx - script.header.length, 0),
+        cursorEnd: Math.max(endIdx - script.header.length, 0),
         textMatches: []
       } as CompletionResult;
 
@@ -228,7 +231,7 @@ export class LanguageServiceHost implements ts.LanguageServiceHost, ts.ModuleRes
 
   inspect(script: CellScript, cursor: number): Promise<InspectResult> {
     return new Promise((resolve, reject) => {
-      let info = this.service.getQuickInfoAtPosition(script.tmpFileName, cursor);
+      let info = this.service.getQuickInfoAtPosition(script.tmpFileName, cursor + script.header.length);
       resolve({details: info.displayParts.map(d => d.text).join("")});
     });
   }
@@ -266,21 +269,17 @@ export class CellScript {
     return "cell/" + this.cellCounter + ".tsx";
   }
 
-  version = 0;
+  cellDivId = "cell-" + this.cellCounter;
+  header = "import {getDiv} from \"./_setup\";\nconst div = getDiv(" + JSON.stringify(this.cellDivId) + ");\n";
 
   get contents(): string {
     if (this.withoutHeader) return this._contents;
-    return "import {getDiv} from \"./_setup\";\nconst div = getDiv(" + JSON.stringify(this.cellDivId) + ");\n" + this._contents;
+    return this.header + this._contents;
   }
 
   update(contents: string) {
     this._contents = contents;
-    this.version++;
     return this;
-  }
-
-  get cellDivId(): string {
-    return "cell-" + this.cellCounter;
   }
 
   static cellSetupScript = new CellScript(-1, `

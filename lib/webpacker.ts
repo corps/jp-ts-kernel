@@ -13,6 +13,7 @@ export class Webpacker {
   addOrReplaceScript(entry: string, content: string) {
     let fullEntryPath = path.resolve(this.workingDir, entry);
     this.fs.memoryFs.mkdirpSync(path.dirname(fullEntryPath));
+
     this.fs.memoryFs.writeFileSync(fullEntryPath, content);
   }
 

@@ -155,7 +155,7 @@ export class Kernel {
     let content = request.content as ExecuteContent;
     let executingScript = this.curScript;
 
-    this.languageHost.addOrReplaceScript(this.curScript.update(content.code));
+    this.languageHost.addOrReplaceScript(executingScript.update(content.code));
     this.curScript = this.languageHost.addOrReplaceScript(new CellScript(this.curScript.cellCounter + 1));
 
     request.respond(this.ioPubSocket, "execute_input", {
@@ -169,6 +169,7 @@ export class Kernel {
       return this.languageHost.compileScript(executingScript).then(result => {
         this.stream(request, "stdout", "typescript compilation finished, running webpack...\n");
         let entry = result.entry.split(".").slice(0, -1).join(".") + ".js";
+
         return this.webpacker.run(entry, result.contents[entry]);
       }).then(jsCode => {
         request.respond(this.shellSocket, "execute_reply", {
@@ -246,7 +247,6 @@ export class Kernel {
       let finish = this.reportExecutionState.bind(this, request, 'idle');
       handler.call(this, request).then(finish, (e: Error) => {
         console.error(e, e.stack);
-        this.stream(request, "stderr", e.toString() + "\n");
         finish();
       });
     } catch (e) {
